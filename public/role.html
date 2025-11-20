@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comrade - Kulturrevolution</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="container" id="gameContainer">
+    <h1 class="title">Comrade</h1>
+    <div id="status" class="status">Waiting for your secret task...</div>
+    <div id="task" class="task hidden"></div>
+  </div>
+
+  <script>
+    // Get player ID from URL
+    const pathParts = window.location.pathname.split('/');
+    const playerID = pathParts[pathParts.length - 1];
+
+    // Connect to Socket.IO
+    const socket = io();
+
+    // Register with server
+    socket.on('connect', () => {
+      console.log('Connected to server');
+      socket.emit('register', playerID);
+    });
+
+    // Handle new task
+    socket.on('newTask', (task) => {
+      const statusEl = document.getElementById('status');
+      const taskEl = document.getElementById('task');
+
+      statusEl.textContent = 'Your secret task:';
+      taskEl.textContent = task;
+      taskEl.classList.remove('hidden');
+    });
+
+    // Handle elimination
+    socket.on('dead', () => {
+      const container = document.getElementById('gameContainer');
+      container.innerHTML = `
+        <div class="eliminated">
+          <h1>☠️</h1>
+          <h2>You have been eliminated</h2>
+          <p>Your role in the revolution has come to an end.</p>
+        </div>
+      `;
+    });
+
+    // Handle system messages
+    socket.on('systemMessage', (message) => {
+      showNotification(message);
+    });
+
+    // Handle game reset
+    socket.on('gameReset', () => {
+      const statusEl = document.getElementById('status');
+      const taskEl = document.getElementById('task');
+
+      statusEl.textContent = 'Game has been reset. Waiting for new instructions...';
+      taskEl.textContent = '';
+      taskEl.classList.add('hidden');
+    });
+
+    // Show notification
+    function showNotification(message) {
+      const notification = document.createElement('div');
+      notification.className = 'notification';
+      notification.textContent = message;
+      document.body.appendChild(notification);
+
+      setTimeout(() => {
+        notification.classList.add('show');
+      }, 10);
+
+      setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+          notification.remove();
+        }, 300);
+      }, 5000);
+    }
+
+    // Handle connection errors
+    socket.on('connect_error', (error) => {
+      console.error('Connection error:', error);
+      document.getElementById('status').textContent = 'Connection error. Please refresh.';
+    });
+  </script>
+</body>
+</html>

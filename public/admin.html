@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Kulturrevolution</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="admin-container">
+    <h1 class="admin-title">🚩 Kulturrevolution - Admin Dashboard</h1>
+
+    <div class="admin-section">
+      <h2>Game Controls</h2>
+      <div class="button-grid">
+        <button onclick="startGame()" class="btn btn-primary">Start Game</button>
+        <button onclick="assignRandomTasks()" class="btn btn-success">Assign Random Tasks to All</button>
+        <button onclick="forceVoting()" class="btn btn-warning">Force Voting Phase</button>
+        <button onclick="revealResults()" class="btn btn-info">Reveal Voting Results</button>
+        <button onclick="resetGame()" class="btn btn-danger">Reset Game</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h2>Broadcast Message</h2>
+      <div class="broadcast-controls">
+        <input type="text" id="broadcastInput" placeholder="Enter message to all players..." class="broadcast-input">
+        <button onclick="sendBroadcast()" class="btn btn-primary">Send Broadcast</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h2>Player Management</h2>
+      <div class="player-list" id="playerList">
+        <p class="no-players">No players connected yet.</p>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h2>Kill Player</h2>
+      <div class="kill-controls">
+        <select id="killPlayerSelect" class="kill-select">
+          <option value="">Select player to eliminate...</option>
+        </select>
+        <button onclick="killPlayer()" class="btn btn-danger">Eliminate Player</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h2>Activity Log</h2>
+      <div id="activityLog" class="activity-log"></div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let players = [];
+
+    // Register as admin
+    socket.on('connect', () => {
+      console.log('Admin connected');
+      socket.emit('registerAdmin');
+      addLog('Admin connected to server');
+    });
+
+    // Update player list
+    socket.on('playerListUpdate', (playerList) => {
+      players = playerList;
+      updatePlayerList();
+      updateKillSelect();
+    });
+
+    // Game control functions
+    function startGame() {
+      socket.emit('startGame');
+      addLog('Game started');
+    }
+
+    function assignRandomTasks() {
+      socket.emit('assignRandomTasks');
+      addLog('Random tasks assigned to all alive players');
+    }
+
+    function forceVoting() {
+      socket.emit('forceVoting');
+      addLog('Voting phase started');
+    }
+
+    function revealResults() {
+      const message = prompt('Enter voting results message (or leave empty for default):');
+      socket.emit('revealResults', message);
+      addLog('Voting results revealed');
+    }
+
+    function resetGame() {
+      if (confirm('Are you sure you want to reset the game? This will clear all players.')) {
+        socket.emit('resetGame');
+        addLog('Game reset');
+      }
+    }
+
+    function sendBroadcast() {
+      const input = document.getElementById('broadcastInput');
+      const message = input.value.trim();
+
+      if (message) {
+        socket.emit('broadcastMessage', message);
+        addLog(`Broadcast sent: "${message}"`);
+        input.value = '';
+      }
+    }
+
+    function killPlayer() {
+      const select = document.getElementById('killPlayerSelect');
+      const playerID = select.value;
+
+      if (playerID) {
+        if (confirm(`Are you sure you want to eliminate player ${playerID}?`)) {
+          socket.emit('killPlayer', playerID);
+          addLog(`Player ${playerID} eliminated`);
+        }
+      } else {
+        alert('Please select a player to eliminate');
+      }
+    }
+
+    // Update player list display
+    function updatePlayerList() {
+      const listEl = document.getElementById('playerList');
+
+      if (players.length === 0) {
+        listEl.innerHTML = '<p class="no-players">No players connected yet.</p>';
+        return;
+      }
+
+      let html = '<table class="player-table"><thead><tr><th>ID</th><th>Status</th><th>Connection</th><th>Task</th></tr></thead><tbody>';
+
+      players.forEach(player => {
+        const statusClass = player.alive ? 'status-alive' : 'status-dead';
+        const statusText = player.alive ? '✓ Alive' : '☠ Dead';
+        const connectionClass = player.connected ? 'status-connected' : 'status-disconnected';
+        const connectionText = player.connected ? '● Online' : '○ Offline';
+        const taskText = player.hasTask ? '✓ Has task' : '- No task';
+
+        html += `
+          <tr>
+            <td class="player-id">${player.id}</td>
+            <td class="${statusClass}">${statusText}</td>
+            <td class="${connectionClass}">${connectionText}</td>
+            <td>${taskText}</td>
+          </tr>
+        `;
+      });
+
+      html += '</tbody></table>';
+      listEl.innerHTML = html;
+    }
+
+    // Update kill player dropdown
+    function updateKillSelect() {
+      const select = document.getElementById('killPlayerSelect');
+      const currentValue = select.value;
+
+      select.innerHTML = '<option value="">Select player to eliminate...</option>';
+
+      players.filter(p => p.alive).forEach(player => {
+        const option = document.createElement('option');
+        option.value = player.id;
+        option.textContent = `${player.id} ${player.connected ? '(Online)' : '(Offline)'}`;
+        select.appendChild(option);
+      });
+
+      // Restore selection if still valid
+      if (currentValue) {
+        select.value = currentValue;
+      }
+    }
+
+    // Add log entry
+    function addLog(message) {
+      const logEl = document.getElementById('activityLog');
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">[${timestamp}]</span> ${message}`;
+
+      logEl.insertBefore(entry, logEl.firstChild);
+
+      // Keep only last 50 entries
+      while (logEl.children.length > 50) {
+        logEl.removeChild(logEl.lastChild);
+      }
+    }
+
+    // Handle Enter key in broadcast input
+    document.getElementById('broadcastInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendBroadcast();
+      }
+    });
+
+    // Handle system messages
+    socket.on('systemMessage', (message) => {
+      addLog(`System broadcast: "${message}"`);
+    });
+  </script>
+</body>
+</html>

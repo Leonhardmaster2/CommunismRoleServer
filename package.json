@@ -1,0 +1,16 @@
+{
+  "name": "kulturrevolution-game",
+  "version": "1.0.0",
+  "description": "Local QR-based social deduction game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["game", "social-deduction", "websocket"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.0"
+  }
+}
