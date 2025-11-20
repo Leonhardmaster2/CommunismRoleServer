@@ -5,10 +5,12 @@ A local, QR-code-based social deduction game where all players are secretly "Com
 ## Features
 
 - **Local Server**: Runs completely offline on your Mac/local network
-- **QR Code Access**: Players join by scanning a QR code
+- **QR Code Access**: Players join by scanning a QR code and entering their name
 - **Real-time Communication**: Uses WebSockets for instant updates
+- **Hunter/Hunted Task System**: Paired tasks where one player performs a behavior and another must identify it
 - **Admin Dashboard**: Full control over game flow and player management
-- **Secret Tasks**: Each player receives a unique secret task
+- **Modern UI**: Smooth animations, gradients, and responsive design
+- **Player Names**: Track players by their names throughout the game
 
 ## Installation
 
@@ -44,10 +46,14 @@ Server accessible at:
 
 ### For Players:
 1. Scan the QR code
-2. You'll be assigned the role "Comrade"
-3. Wait for your secret task
-4. Complete your task without revealing it to others
-5. Try to figure out what others are trying to do
+2. Enter your name to join the game
+3. You'll be assigned the role "Comrade"
+4. Wait for the admin to assign tasks
+5. You'll receive one of two task types:
+   - **🎯 HUNTER**: Identify someone performing a specific behavior
+   - **🎭 TARGET**: Perform a specific behavior without being caught
+6. Complete your task without revealing it to others
+7. During voting, discuss and vote to eliminate suspicious players
 
 ### For Game Master (Admin):
 1. Open the admin panel at `http://localhost:3000/admin`
@@ -71,13 +77,22 @@ Server accessible at:
 
 ## Game Tasks
 
-Players may receive tasks like:
-- Touch your nose three times during the discussion
-- Convince the group that whoever touches their nose three times is an enemy
-- Stay silent for 60 seconds
-- Ask three people why they look nervous
-- Look at the ceiling three times
-- And more...
+The game features **paired hunter/hunted tasks**. For each pair:
+- One player (TARGET) must perform a behavior
+- Another player (HUNTER) must identify who's performing that behavior
+
+### Example Task Pairs:
+
+**TARGET Task**: "Touch your nose three times during the discussion."
+**HUNTER Task**: "Identify the person who touches their nose three times. They are the counter-revolutionary!"
+
+**TARGET Task**: "Stay completely silent for 60 seconds straight."
+**HUNTER Task**: "Identify who stays silent for 60 seconds. They are the enemy!"
+
+**TARGET Task**: "Cross your arms and keep them crossed for 90 seconds."
+**HUNTER Task**: "Find the person who keeps their arms crossed for a long time. They are hiding something!"
+
+The game includes 12 different task pairs with various behaviors to identify!
 
 ## Technical Details
 
@@ -97,15 +112,16 @@ Players may receive tasks like:
 
 ```
 CommunismRoleServer/
-├── server.js          # Main server file
-├── tasks.js           # Secret tasks array
+├── server.js          # Main server file with paired task logic
+├── tasks.js           # Hunter/hunted task pairs
 ├── package.json       # Dependencies
 ├── README.md          # This file
 ├── todo.md           # Project specifications
 └── public/
-    ├── role.html      # Player interface
+    ├── join.html      # Player name registration
+    ├── role.html      # Player interface with task display
     ├── admin.html     # Admin dashboard
-    └── style.css      # Styling
+    └── style.css      # Modern animated styling
 ```
 
 ## License
