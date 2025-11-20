@@ -134,18 +134,27 @@
         return;
       }
 
-      let html = '<table class="player-table"><thead><tr><th>ID</th><th>Status</th><th>Connection</th><th>Task</th></tr></thead><tbody>';
+      let html = '<table class="player-table"><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Connection</th><th>Task Type</th></tr></thead><tbody>';
 
       players.forEach(player => {
         const statusClass = player.alive ? 'status-alive' : 'status-dead';
         const statusText = player.alive ? '✓ Alive' : '☠ Dead';
         const connectionClass = player.connected ? 'status-connected' : 'status-disconnected';
         const connectionText = player.connected ? '● Online' : '○ Offline';
-        const taskText = player.hasTask ? '✓ Has task' : '- No task';
+
+        let taskText = '- No task';
+        if (player.hasTask) {
+          if (player.taskType === 'hunter') {
+            taskText = '<span class="task-badge hunter-badge">🎯 Hunter</span>';
+          } else if (player.taskType === 'hunted') {
+            taskText = '<span class="task-badge hunted-badge">🎭 Target</span>';
+          }
+        }
 
         html += `
           <tr>
-            <td class="player-id">${player.id}</td>
+            <td class="player-name">${player.name}</td>
+            <td class="player-id-small">${player.id}</td>
             <td class="${statusClass}">${statusText}</td>
             <td class="${connectionClass}">${connectionText}</td>
             <td>${taskText}</td>
@@ -167,7 +176,7 @@
       players.filter(p => p.alive).forEach(player => {
         const option = document.createElement('option');
         option.value = player.id;
-        option.textContent = `${player.id} ${player.connected ? '(Online)' : '(Offline)'}`;
+        option.textContent = `${player.name} (${player.id}) ${player.connected ? '● Online' : '○ Offline'}`;
         select.appendChild(option);
       });
 

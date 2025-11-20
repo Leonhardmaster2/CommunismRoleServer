@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join - Kulturrevolution</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="join-container">
+    <div class="join-card">
+      <div class="join-header">
+        <div class="flag">🚩</div>
+        <h1 class="join-title">Kulturrevolution</h1>
+        <p class="join-subtitle">Join the Revolution</p>
+      </div>
+
+      <form id="joinForm" class="join-form">
+        <div class="form-group">
+          <label for="playerName" class="form-label">Enter Your Name</label>
+          <input
+            type="text"
+            id="playerName"
+            class="form-input"
+            placeholder="Comrade..."
+            maxlength="20"
+            required
+            autofocus
+          >
+        </div>
+
+        <button type="submit" class="btn-join">
+          <span>Join Game</span>
+          <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </form>
+
+      <div class="join-footer">
+        <p>You will be assigned the role of <strong>Comrade</strong></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('joinForm');
+    const input = document.getElementById('playerName');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const name = input.value.trim();
+
+      if (!name) {
+        input.classList.add('error');
+        return;
+      }
+
+      // Send name to server
+      try {
+        const response = await fetch('/api/join', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Redirect to role page
+          window.location.href = `/role/${data.playerID}`;
+        } else {
+          alert('Error joining game. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Connection error. Please try again.');
+      }
+    });
+
+    // Remove error class on input
+    input.addEventListener('input', () => {
+      input.classList.remove('error');
+    });
+  </script>
+</body>
+</html>

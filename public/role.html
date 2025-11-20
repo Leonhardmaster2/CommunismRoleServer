@@ -8,16 +8,37 @@
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <div class="container" id="gameContainer">
-    <h1 class="title">Comrade</h1>
-    <div id="status" class="status">Waiting for your secret task...</div>
-    <div id="task" class="task hidden"></div>
+  <div class="role-page">
+    <div class="container" id="gameContainer">
+      <div class="role-header">
+        <div class="flag-icon">🚩</div>
+        <h1 class="title">Comrade <span id="playerName" class="player-name-display"></span></h1>
+        <div class="role-badge">Revolutionary</div>
+      </div>
+
+      <div class="task-container">
+        <div id="status" class="status">
+          <div class="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <p>Waiting for your secret task...</p>
+        </div>
+        <div id="taskCard" class="task-card hidden">
+          <div class="task-type-badge" id="taskTypeBadge"></div>
+          <div class="task-content" id="task"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
     // Get player ID from URL
     const pathParts = window.location.pathname.split('/');
     const playerID = pathParts[pathParts.length - 1];
+
+    let playerName = '';
 
     // Connect to Socket.IO
     const socket = io();
@@ -28,14 +49,41 @@
       socket.emit('register', playerID);
     });
 
-    // Handle new task
-    socket.on('newTask', (task) => {
-      const statusEl = document.getElementById('status');
-      const taskEl = document.getElementById('task');
+    // Handle player info
+    socket.on('playerInfo', (info) => {
+      playerName = info.name;
+      document.getElementById('playerName').textContent = info.name;
+    });
 
-      statusEl.textContent = 'Your secret task:';
-      taskEl.textContent = task;
-      taskEl.classList.remove('hidden');
+    // Handle new task
+    socket.on('newTask', (data) => {
+      const statusEl = document.getElementById('status');
+      const taskCard = document.getElementById('taskCard');
+      const taskEl = document.getElementById('task');
+      const typeBadge = document.getElementById('taskTypeBadge');
+
+      // Hide loading status
+      statusEl.classList.add('hidden');
+
+      // Set task content
+      taskEl.textContent = data.task;
+
+      // Set task type badge
+      if (data.type === 'hunter') {
+        typeBadge.textContent = '🎯 HUNTER';
+        typeBadge.className = 'task-type-badge hunter';
+        taskCard.className = 'task-card hunter';
+      } else {
+        typeBadge.textContent = '🎭 TARGET';
+        typeBadge.className = 'task-type-badge hunted';
+        taskCard.className = 'task-card hunted';
+      }
+
+      // Show task card with animation
+      taskCard.classList.remove('hidden');
+      setTimeout(() => {
+        taskCard.classList.add('show');
+      }, 10);
     });
 
     // Handle elimination
@@ -43,9 +91,10 @@
       const container = document.getElementById('gameContainer');
       container.innerHTML = `
         <div class="eliminated">
-          <h1>☠️</h1>
+          <div class="skull-animation">☠️</div>
           <h2>You have been eliminated</h2>
           <p>Your role in the revolution has come to an end.</p>
+          <div class="eliminated-name">${playerName}</div>
         </div>
       `;
     });
@@ -58,18 +107,29 @@
     // Handle game reset
     socket.on('gameReset', () => {
       const statusEl = document.getElementById('status');
-      const taskEl = document.getElementById('task');
+      const taskCard = document.getElementById('taskCard');
 
-      statusEl.textContent = 'Game has been reset. Waiting for new instructions...';
-      taskEl.textContent = '';
-      taskEl.classList.add('hidden');
+      statusEl.classList.remove('hidden');
+      statusEl.innerHTML = `
+        <div class="loading-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <p>Game has been reset. Waiting for new instructions...</p>
+      `;
+      taskCard.classList.add('hidden');
+      taskCard.classList.remove('show');
     });
 
     // Show notification
     function showNotification(message) {
       const notification = document.createElement('div');
       notification.className = 'notification';
-      notification.textContent = message;
+      notification.innerHTML = `
+        <div class="notification-icon">📢</div>
+        <div class="notification-text">${message}</div>
+      `;
       document.body.appendChild(notification);
 
       setTimeout(() => {
@@ -87,7 +147,7 @@
     // Handle connection errors
     socket.on('connect_error', (error) => {
       console.error('Connection error:', error);
-      document.getElementById('status').textContent = 'Connection error. Please refresh.';
+      showNotification('Connection error. Please check your connection.');
     });
   </script>
 </body>

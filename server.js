@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const path = require('path');
-const tasks = require('./tasks');
+const taskPairs = require('./tasks');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,7 +14,8 @@ const PORT = 3000;
 const players = {};
 let gameStarted = false;
 
-// Serve static files
+// Middleware
+app.use(express.json());
 app.use(express.static('public'));
 
 // Generate random player ID
@@ -22,28 +23,91 @@ function generatePlayerID() {
   return Math.random().toString(36).substring(2, 9).toUpperCase();
 }
 
-// Get random task
-function getRandomTask() {
-  return tasks[Math.floor(Math.random() * tasks.length)];
+// Assign paired tasks to players
+function assignPairedTasks() {
+  const alivePlayers = Object.values(players).filter(p => p.alive);
+
+  if (alivePlayers.length < 2) {
+    console.log('Not enough players for paired tasks (need at least 2)');
+    return;
+  }
+
+  // Clear existing tasks
+  alivePlayers.forEach(p => p.task = null);
+
+  // Shuffle players
+  const shuffled = [...alivePlayers].sort(() => Math.random() - 0.5);
+
+  // Assign tasks in pairs
+  let pairIndex = 0;
+  for (let i = 0; i < shuffled.length - 1; i += 2) {
+    const taskPair = taskPairs[pairIndex % taskPairs.length];
+
+    // First player is the "hunted" (performs behavior)
+    shuffled[i].task = taskPair.hunted;
+    shuffled[i].taskType = 'hunted';
+
+    // Second player is the "hunter" (identifies behavior)
+    shuffled[i + 1].task = taskPair.hunter;
+    shuffled[i + 1].taskType = 'hunter';
+
+    // Send tasks via socket
+    if (shuffled[i].socket) {
+      io.to(shuffled[i].socket).emit('newTask', { task: taskPair.hunted, type: 'hunted' });
+    }
+    if (shuffled[i + 1].socket) {
+      io.to(shuffled[i + 1].socket).emit('newTask', { task: taskPair.hunter, type: 'hunter' });
+    }
+
+    pairIndex++;
+  }
+
+  // If odd number of players, give the last one a random hunted task
+  if (shuffled.length % 2 !== 0) {
+    const lastPlayer = shuffled[shuffled.length - 1];
+    const randomPair = taskPairs[Math.floor(Math.random() * taskPairs.length)];
+    lastPlayer.task = randomPair.hunted;
+    lastPlayer.taskType = 'hunted';
+
+    if (lastPlayer.socket) {
+      io.to(lastPlayer.socket).emit('newTask', { task: randomPair.hunted, type: 'hunted' });
+    }
+  }
+
+  console.log(`Paired tasks assigned to ${alivePlayers.length} players`);
 }
 
 // Routes
 app.get('/join', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'join.html'));
+});
+
+app.post('/api/join', (req, res) => {
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.json({ success: false, error: 'Name is required' });
+  }
+
   const playerID = generatePlayerID();
 
   // Initialize player
   players[playerID] = {
     id: playerID,
+    name: name.trim(),
     alive: true,
     connected: false,
     socket: null,
-    task: null
+    task: null,
+    taskType: null
   };
 
-  console.log(`New player joined: ${playerID}`);
+  console.log(`New player joined: ${name} (${playerID})`);
 
-  // Redirect to role page
-  res.redirect(`/role/${playerID}`);
+  // Notify admin of new player
+  io.emit('playerListUpdate', getPlayerList());
+
+  res.json({ success: true, playerID });
 });
 
 app.get('/role/:id', (req, res) => {
@@ -71,11 +135,17 @@ io.on('connection', (socket) => {
       players[playerID].connected = true;
       socket.playerID = playerID;
 
-      console.log(`Player ${playerID} registered with socket ${socket.id}`);
+      console.log(`Player ${players[playerID].name} (${playerID}) registered with socket ${socket.id}`);
+
+      // Send player their name
+      socket.emit('playerInfo', { name: players[playerID].name });
 
       // Send task if already assigned
       if (players[playerID].task) {
-        socket.emit('newTask', players[playerID].task);
+        socket.emit('newTask', {
+          task: players[playerID].task,
+          type: players[playerID].taskType
+        });
       }
 
       // Notify admin about player list update
@@ -104,20 +174,9 @@ io.on('connection', (socket) => {
   socket.on('assignRandomTasks', () => {
     if (!socket.isAdmin) return;
 
-    Object.keys(players).forEach(playerID => {
-      const player = players[playerID];
-      if (player.alive) {
-        const task = getRandomTask();
-        player.task = task;
-
-        if (player.socket) {
-          io.to(player.socket).emit('newTask', task);
-        }
-      }
-    });
-
-    console.log('Random tasks assigned to all players');
+    assignPairedTasks();
     broadcast('New tasks have been assigned!');
+    io.emit('playerListUpdate', getPlayerList());
   });
 
   socket.on('forceVoting', () => {
@@ -217,9 +276,11 @@ function getPlayerList() {
     const player = players[playerID];
     return {
       id: playerID,
+      name: player.name,
       alive: player.alive,
       connected: player.connected,
-      hasTask: !!player.task
+      hasTask: !!player.task,
+      taskType: player.taskType
     };
   });
 }
