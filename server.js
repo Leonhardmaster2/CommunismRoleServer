@@ -13,6 +13,8 @@ const PORT = 3000;
 // Player management
 const players = {};
 let gameStarted = false;
+let currentVotes = {}; // { voterID: targetID }
+let suspicionLevels = {}; // { playerID: suspicionScore }
 
 // Middleware
 app.use(express.json());
@@ -23,58 +25,131 @@ function generatePlayerID() {
   return Math.random().toString(36).substring(2, 9).toUpperCase();
 }
 
-// Assign paired tasks to players
-function assignPairedTasks() {
+// Assign single hunter and single target
+function assignRoles() {
   const alivePlayers = Object.values(players).filter(p => p.alive);
 
-  if (alivePlayers.length < 2) {
-    console.log('Not enough players for paired tasks (need at least 2)');
+  if (alivePlayers.length < 3) {
+    console.log('Not enough players (need at least 3)');
     return;
   }
 
-  // Clear existing tasks
-  alivePlayers.forEach(p => p.task = null);
+  // Clear existing tasks and reset roles
+  alivePlayers.forEach(p => {
+    p.task = null;
+    p.taskType = 'comrade';
+    p.isImposter = false;
+  });
+
+  // Reset votes and suspicion
+  currentVotes = {};
+  suspicionLevels = {};
+  alivePlayers.forEach(p => {
+    suspicionLevels[p.id] = 0;
+  });
 
   // Shuffle players
   const shuffled = [...alivePlayers].sort(() => Math.random() - 0.5);
 
-  // Assign tasks in pairs
-  let pairIndex = 0;
-  for (let i = 0; i < shuffled.length - 1; i += 2) {
-    const taskPair = taskPairs[pairIndex % taskPairs.length];
+  // Pick random task pair
+  const taskPair = taskPairs[Math.floor(Math.random() * taskPairs.length)];
 
-    // First player is the "hunted" (performs behavior)
-    shuffled[i].task = taskPair.hunted;
-    shuffled[i].taskType = 'hunted';
+  // First player is the TARGET (imposter who performs behavior)
+  const target = shuffled[0];
+  target.task = taskPair.hunted;
+  target.taskType = 'target';
+  target.isImposter = true;
 
-    // Second player is the "hunter" (identifies behavior)
-    shuffled[i + 1].task = taskPair.hunter;
-    shuffled[i + 1].taskType = 'hunter';
+  // Second player is the HUNTER (detective who identifies behavior)
+  const hunter = shuffled[1];
+  hunter.task = taskPair.hunter;
+  hunter.taskType = 'hunter';
 
-    // Send tasks via socket
+  // Everyone else is a regular comrade
+  for (let i = 2; i < shuffled.length; i++) {
+    shuffled[i].task = 'Observe carefully and vote out suspicious players. Work together to find the imposter!';
+    shuffled[i].taskType = 'comrade';
+  }
+
+  // Send tasks via socket
+  if (target.socket) {
+    io.to(target.socket).emit('newTask', {
+      task: taskPair.hunted,
+      type: 'target',
+      role: 'IMPOSTER'
+    });
+  }
+
+  if (hunter.socket) {
+    io.to(hunter.socket).emit('newTask', {
+      task: taskPair.hunter,
+      type: 'hunter',
+      role: 'DETECTIVE'
+    });
+  }
+
+  // Send comrade tasks
+  for (let i = 2; i < shuffled.length; i++) {
     if (shuffled[i].socket) {
-      io.to(shuffled[i].socket).emit('newTask', { task: taskPair.hunted, type: 'hunted' });
-    }
-    if (shuffled[i + 1].socket) {
-      io.to(shuffled[i + 1].socket).emit('newTask', { task: taskPair.hunter, type: 'hunter' });
-    }
-
-    pairIndex++;
-  }
-
-  // If odd number of players, give the last one a random hunted task
-  if (shuffled.length % 2 !== 0) {
-    const lastPlayer = shuffled[shuffled.length - 1];
-    const randomPair = taskPairs[Math.floor(Math.random() * taskPairs.length)];
-    lastPlayer.task = randomPair.hunted;
-    lastPlayer.taskType = 'hunted';
-
-    if (lastPlayer.socket) {
-      io.to(lastPlayer.socket).emit('newTask', { task: randomPair.hunted, type: 'hunted' });
+      io.to(shuffled[i].socket).emit('newTask', {
+        task: shuffled[i].task,
+        type: 'comrade',
+        role: 'COMRADE'
+      });
     }
   }
 
-  console.log(`Paired tasks assigned to ${alivePlayers.length} players`);
+  console.log(`Roles assigned: Target=${target.name}, Hunter=${hunter.name}, ${shuffled.length - 2} Comrades`);
+
+  // Broadcast suspicion levels
+  io.emit('suspicionUpdate', getSuspicionData());
+}
+
+// Get suspicion data for chart (exponential scaling)
+function getSuspicionData() {
+  const alivePlayers = Object.values(players).filter(p => p.alive);
+
+  return alivePlayers.map(player => {
+    const votes = Object.values(currentVotes).filter(targetID => targetID === player.id).length;
+    // Exponential scaling: score = votes^2 to make differences more dramatic
+    const score = Math.pow(votes, 2);
+    suspicionLevels[player.id] = score;
+
+    return {
+      id: player.id,
+      name: player.name,
+      votes: votes,
+      suspicion: score
+    };
+  }).sort((a, b) => b.suspicion - a.suspicion);
+}
+
+// Calculate vote results
+function getVoteResults() {
+  const voteCounts = {};
+  const alivePlayers = Object.values(players).filter(p => p.alive);
+
+  // Initialize all alive players with 0 votes
+  alivePlayers.forEach(p => {
+    voteCounts[p.id] = 0;
+  });
+
+  // Count votes
+  Object.values(currentVotes).forEach(targetID => {
+    if (voteCounts[targetID] !== undefined) {
+      voteCounts[targetID]++;
+    }
+  });
+
+  // Find player(s) with most votes
+  const maxVotes = Math.max(...Object.values(voteCounts));
+  const topVoted = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
+
+  return {
+    voteCounts,
+    maxVotes,
+    topVoted: topVoted.map(id => players[id])
+  };
 }
 
 // Routes
@@ -99,7 +174,9 @@ app.post('/api/join', (req, res) => {
     connected: false,
     socket: null,
     task: null,
-    taskType: null
+    taskType: 'comrade',
+    isImposter: false,
+    revealedRole: null // Set when eliminated
   };
 
   console.log(`New player joined: ${name} (${playerID})`);
@@ -174,9 +251,31 @@ io.on('connection', (socket) => {
   socket.on('assignRandomTasks', () => {
     if (!socket.isAdmin) return;
 
-    assignPairedTasks();
-    broadcast('New tasks have been assigned!');
+    assignRoles();
+    broadcast('Roles have been assigned! The game begins now.');
     io.emit('playerListUpdate', getPlayerList());
+  });
+
+  // Player voting
+  socket.on('castVote', (targetID) => {
+    if (!socket.playerID || !players[socket.playerID]) return;
+
+    const voter = players[socket.playerID];
+    if (!voter.alive) return;
+
+    // Record vote
+    currentVotes[voter.id] = targetID;
+    console.log(`${voter.name} voted for ${players[targetID]?.name || 'unknown'}`);
+
+    // Update and broadcast suspicion levels
+    const suspicionData = getSuspicionData();
+    io.emit('suspicionUpdate', suspicionData);
+
+    // Confirm vote to player
+    socket.emit('voteConfirmed', {
+      target: players[targetID]?.name,
+      targetID: targetID
+    });
   });
 
   socket.on('forceVoting', () => {
@@ -241,14 +340,23 @@ function kill(playerID) {
   const player = players[playerID];
   if (player) {
     player.alive = false;
+    // Always reveal as IMPOSTER when killed (to make it look like they were caught)
+    player.revealedRole = 'IMPOSTER';
 
     if (player.socket) {
-      io.to(player.socket).emit('dead');
+      io.to(player.socket).emit('dead', {
+        revealedRole: 'IMPOSTER',
+        wasActualImposter: player.isImposter
+      });
     }
 
-    console.log(`Player ${playerID} has been eliminated`);
-    broadcast(`A player has been eliminated!`);
+    console.log(`Player ${player.name} has been eliminated (revealed as IMPOSTER)`);
+    broadcast(`${player.name} has been eliminated and revealed as the IMPOSTER!`);
     io.emit('playerListUpdate', getPlayerList());
+
+    // Clear their vote
+    delete currentVotes[playerID];
+    io.emit('suspicionUpdate', getSuspicionData());
   }
 }
 
@@ -264,11 +372,16 @@ function resetGame() {
   // Clear player data
   Object.keys(players).forEach(key => delete players[key]);
 
+  // Clear votes and suspicion
+  currentVotes = {};
+  suspicionLevels = {};
+
   gameStarted = false;
 
   console.log('Game reset');
   broadcast('Game has been reset!');
   io.emit('playerListUpdate', []);
+  io.emit('suspicionUpdate', []);
 }
 
 function getPlayerList() {
@@ -280,7 +393,9 @@ function getPlayerList() {
       alive: player.alive,
       connected: player.connected,
       hasTask: !!player.task,
-      taskType: player.taskType
+      taskType: player.taskType,
+      revealedRole: player.revealedRole,
+      isImposter: player.isImposter // Only for admin view
     };
   });
 }

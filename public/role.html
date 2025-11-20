@@ -13,7 +13,7 @@
       <div class="role-header">
         <div class="flag-icon">🚩</div>
         <h1 class="title">Comrade <span id="playerName" class="player-name-display"></span></h1>
-        <div class="role-badge">Revolutionary</div>
+        <div id="roleBadge" class="role-badge">Revolutionary</div>
       </div>
 
       <div class="task-container">
@@ -30,6 +30,20 @@
           <div class="task-content" id="task"></div>
         </div>
       </div>
+
+      <!-- Suspicion Chart -->
+      <div id="suspicionChart" class="suspicion-chart hidden">
+        <h3 class="chart-title">📊 Suspicion Levels</h3>
+        <div id="chartBars" class="chart-bars"></div>
+      </div>
+
+      <!-- Voting Section -->
+      <div id="votingSection" class="voting-section hidden">
+        <h3 class="voting-title">🗳️ Cast Your Vote</h3>
+        <p class="voting-subtitle">Who do you think is the imposter?</p>
+        <div id="voteButtons" class="vote-buttons"></div>
+        <div id="voteStatus" class="vote-status hidden"></div>
+      </div>
     </div>
   </div>
 
@@ -39,6 +53,8 @@
     const playerID = pathParts[pathParts.length - 1];
 
     let playerName = '';
+    let currentVote = null;
+    let allPlayers = [];
 
     // Connect to Socket.IO
     const socket = io();
@@ -61,6 +77,7 @@
       const taskCard = document.getElementById('taskCard');
       const taskEl = document.getElementById('task');
       const typeBadge = document.getElementById('taskTypeBadge');
+      const roleBadge = document.getElementById('roleBadge');
 
       // Hide loading status
       statusEl.classList.add('hidden');
@@ -68,15 +85,25 @@
       // Set task content
       taskEl.textContent = data.task;
 
-      // Set task type badge
+      // Set role and task type badge
       if (data.type === 'hunter') {
-        typeBadge.textContent = '🎯 HUNTER';
+        typeBadge.textContent = '🔍 DETECTIVE';
         typeBadge.className = 'task-type-badge hunter';
         taskCard.className = 'task-card hunter';
+        roleBadge.textContent = '🔍 DETECTIVE';
+        roleBadge.className = 'role-badge detective';
+      } else if (data.type === 'target') {
+        typeBadge.textContent = '🎭 IMPOSTER';
+        typeBadge.className = 'task-type-badge target';
+        taskCard.className = 'task-card target';
+        roleBadge.textContent = '🎭 IMPOSTER';
+        roleBadge.className = 'role-badge imposter';
       } else {
-        typeBadge.textContent = '🎭 TARGET';
-        typeBadge.className = 'task-type-badge hunted';
-        taskCard.className = 'task-card hunted';
+        typeBadge.textContent = '⭐ COMRADE';
+        typeBadge.className = 'task-type-badge comrade';
+        taskCard.className = 'task-card comrade';
+        roleBadge.textContent = '⭐ COMRADE';
+        roleBadge.className = 'role-badge comrade';
       }
 
       // Show task card with animation
@@ -84,17 +111,95 @@
       setTimeout(() => {
         taskCard.classList.add('show');
       }, 10);
+
+      // Show voting and suspicion sections
+      document.getElementById('votingSection').classList.remove('hidden');
+      document.getElementById('suspicionChart').classList.remove('hidden');
+    });
+
+    // Handle suspicion updates
+    socket.on('suspicionUpdate', (suspicionData) => {
+      updateSuspicionChart(suspicionData);
+      updateVoteButtons(suspicionData);
+    });
+
+    // Update suspicion chart
+    function updateSuspicionChart(data) {
+      const chartBars = document.getElementById('chartBars');
+      if (!data || data.length === 0) {
+        chartBars.innerHTML = '<p class="no-data">No data yet...</p>';
+        return;
+      }
+
+      const maxSuspicion = Math.max(...data.map(p => p.suspicion), 1);
+
+      chartBars.innerHTML = data.map(player => {
+        const percentage = (player.suspicion / maxSuspicion) * 100;
+        const isCurrentPlayer = player.id === playerID;
+        return `
+          <div class="chart-bar-row ${isCurrentPlayer ? 'current-player' : ''}">
+            <div class="chart-label">${player.name}</div>
+            <div class="chart-bar-container">
+              <div class="chart-bar" style="width: ${percentage}%">
+                <span class="chart-value">${player.votes} vote${player.votes !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Update vote buttons
+    function updateVoteButtons(suspicionData) {
+      allPlayers = suspicionData || [];
+      const voteButtons = document.getElementById('voteButtons');
+
+      const otherPlayers = allPlayers.filter(p => p.id !== playerID);
+
+      if (otherPlayers.length === 0) {
+        voteButtons.innerHTML = '<p class="no-players">No other players to vote for</p>';
+        return;
+      }
+
+      voteButtons.innerHTML = otherPlayers.map(player => {
+        const isVoted = currentVote === player.id;
+        return `
+          <button class="vote-btn ${isVoted ? 'voted' : ''}" onclick="castVote('${player.id}')">
+            ${isVoted ? '✓ ' : ''}${player.name}
+          </button>
+        `;
+      }).join('');
+    }
+
+    // Cast vote
+    function castVote(targetID) {
+      currentVote = targetID;
+      socket.emit('castVote', targetID);
+    }
+
+    // Handle vote confirmation
+    socket.on('voteConfirmed', (data) => {
+      const voteStatus = document.getElementById('voteStatus');
+      voteStatus.textContent = `You voted for ${data.target}`;
+      voteStatus.classList.remove('hidden');
+
+      // Update button styles
+      updateVoteButtons(allPlayers);
     });
 
     // Handle elimination
-    socket.on('dead', () => {
+    socket.on('dead', (data) => {
       const container = document.getElementById('gameContainer');
       container.innerHTML = `
         <div class="eliminated">
           <div class="skull-animation">☠️</div>
           <h2>You have been eliminated</h2>
-          <p>Your role in the revolution has come to an end.</p>
-          <div class="eliminated-name">${playerName}</div>
+          <div class="revealed-role ${data.revealedRole.toLowerCase()}">${data.revealedRole}</div>
+          <p class="eliminated-name">${playerName}</p>
+          ${data.wasActualImposter ?
+            '<p class="truth">You were caught! The revolutionaries win.</p>' :
+            '<p class="truth">You were innocent! They got the wrong person.</p>'
+          }
         </div>
       `;
     });
@@ -106,20 +211,7 @@
 
     // Handle game reset
     socket.on('gameReset', () => {
-      const statusEl = document.getElementById('status');
-      const taskCard = document.getElementById('taskCard');
-
-      statusEl.classList.remove('hidden');
-      statusEl.innerHTML = `
-        <div class="loading-dots">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
-        <p>Game has been reset. Waiting for new instructions...</p>
-      `;
-      taskCard.classList.add('hidden');
-      taskCard.classList.remove('show');
+      location.reload();
     });
 
     // Show notification
